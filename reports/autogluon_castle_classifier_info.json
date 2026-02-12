@@ -1,0 +1,19 @@
+{
+  "model_name": "autogluon_castle_classifier",
+  "training_time_seconds": 14.156591892242432,
+  "time_limit": 600,
+  "image_size": [
+    224,
+    224
+  ],
+  "train_samples": 201,
+  "val_samples": 45,
+  "test_samples": 45,
+  "test_accuracy": 0.8888888888888888,
+  "classes": [
+    "Романский",
+    "Готический",
+    "Ренессанс"
+  ],
+  "timestamp": "2026-02-12 18:02:43"
+}
