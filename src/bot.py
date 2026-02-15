@@ -3,11 +3,10 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from autogluon.multimodal import MultiModalPredictor
 import pandas as pd
-from PIL import Image
 
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
@@ -83,7 +82,7 @@ async def styles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     styles_text = "🏛️ *Архитектурные стили:*\n\n"
 
-    for style_name, style_info in STYLES_DB.items():
+    for name, style_info in STYLES_DB.items():
         styles_text += f"*{style_info['name']}*\n"
         styles_text += f"{style_info['period']}\n"
 
@@ -101,9 +100,9 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - Обучающих фото: 300
 
 Технологии:
-- Python 3.9
+- Python
 - python-telegram-bot
-- Pandas 2.2.3, NumPy 2.2.4, Pillow 9.5.0
+- Pandas, NumPy, Pillow
     """
     await update.message.reply_text(about_text, parse_mode='Markdown')
 
@@ -113,7 +112,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if MODEL is None:
         await update.message.reply_text(
-            "Ошибка загрузки модели. Дождитесь ответа разработичков."
+            "Ошибка загрузки модели. Дождитесь ответа разработчиков."
         )
         return
 
@@ -157,7 +156,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(response, parse_mode='Markdown')
 
         # если уверенность низкая, добавляем рекомендацию
-        if confidence < style_info.get('confidence_threshold', 0.6):
+        if confidence < 0.6:
             await update.message.reply_text(
                 "📸 Совет: Уверенность невысокая. Попробуй:\n"
                 "- Сфотографировать замок крупнее\n"
@@ -173,7 +172,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-def format_style_response(style_name: str, confidence: float, info: dict) -> str:
+def format_style_response(style_name: str, confidence: float, info: dict):
     conf = confidence * 100
     # формируем ответ
     response = f"""
@@ -210,15 +209,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик текстовых сообщений"""
     await update.message.reply_text(
         "📸 Отправь мне фотографию замка, чтобы определить его стиль!\n"
-        "Используйте /help для получения инструкций."
+        "Используй /help для получения инструкций."
     )
 
 
 def main():
-    TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 
     if not TOKEN:
-        print("ТОКЕН НЕ НАЙДЕН!")
+        logger.error("токен не найден")
         return
 
     app = Application.builder().token(TOKEN).build()
