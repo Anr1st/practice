@@ -149,31 +149,70 @@ def train_with_autogluon():
     print(f"Обучение заняло: {training_time:.1f} сек")
 
     # 3. ОЦЕНКА МОДЕЛИ
+    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_recall_fscore_support
+    import numpy as np
+
     print("\nОЦЕНИВАЮ КАЧЕСТВО МОДЕЛИ...")
 
     # Если есть тестовые данные - оцениваем на них
     test_df = prepare_dataframe("test") if (DATA_DIR / "test").exists() else None
+    eval_dataset_name = "TEST"
+    if test_df is None or len(test_df) == 0:
+        print("Тестовая выборка не найдена. Используется валидационная выборка для анализа.")
+        test_df = val_df
+        eval_dataset_name = "VAL"
 
-    if test_df is not None and len(test_df) > 0:
-        print(f"Тестирую на {len(test_df)} изображениях...")
+    if len(test_df) > 0:
+        print(f"Анализируем {len(test_df)} изображений из набора {eval_dataset_name}...")
 
-        # Получаем предсказания
-        predictions = predictor.predict(test_df)
+        # 1. Получаем предсказания и вероятности
+        y_true = test_df[label_column]
+        y_pred = predictor.predict(test_df)
+        y_proba = predictor.predict_proba(test_df) # Вероятности для каждого класса
 
-        # Оцениваем точность
-        from sklearn.metrics import accuracy_score
-        accuracy = accuracy_score(test_df[label_column], predictions)
-        print(f"Точность на тестовых данных: {accuracy:.2%}")
+        # 2. Основные метрики (Accuracy, Precision, Recall, F1)
+        accuracy = accuracy_score(y_true, y_pred)
+        precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted')
+        
+        print(f"\nМЕТРИКИ ({eval_dataset_name}):")
+        print(f"   Accuracy  (Точность): {accuracy:.2%}")
+        print(f"   Precision (Точность взвеш.): {precision:.2%}")
+        print(f"   Recall    (Полнота взвеш.):  {recall:.2%}")
+        print(f"   F1-score  (Гармоническая):   {f1:.2%}")
 
-        # Дополнительная детальная оценка
-        evaluation = predictor.evaluate(test_df, metrics=["accuracy", "f1_macro"])
-        print(f"Детальная оценка: {evaluation}")
+        # 3. Детальный отчет по классам
+        print("\nОтчет по классам:")
+        print(classification_report(y_true, y_pred, target_names=predictor.class_labels))
+
+        # 4. Матрица ошибок
+        print("\nМатрица ошибок (Что с чем путает модель):")
+        # Строки - истина, столбцы - предсказание
+        cm = confusion_matrix(y_true, y_pred, labels=predictor.class_labels)
+        cm_df = pd.DataFrame(cm, index=[f"True_{c}" for c in predictor.class_labels], 
+                                 columns=[f"Pred_{c}" for c in predictor.class_labels])
+        print(cm_df)
+
+    # 4. СОХРАНЕНИЕ РЕХУЛЬТАТОВ
+        print("\nСОХРАНЯЮ РЕЗУЛЬТАТЫ...")
+        
+        analysis_df = test_df.copy()
+        analysis_df['predicted_label'] = y_pred
+        analysis_df['confidence'] = y_proba.max(axis=1) # Уверенность модели
+        analysis_df['is_correct'] = analysis_df[label_column] == analysis_df['predicted_label']
+        
+        # Добавляем вероятности по каждому классу отдельно
+        for cls in predictor.class_labels:
+            analysis_df[f'prob_{cls}'] = y_proba[cls]
+
+        # Сохраняем в CSV
+        analysis_csv_path = REPORTS_DIR / f"prediction_analysis_{eval_dataset_name.lower()}.csv"
+        analysis_df.to_csv(analysis_csv_path, index=False)
+        print(f"   Файл сохранен: {analysis_csv_path}")
+        print("   (Используйте этот файл для поиска ошибок и интерпретации результатов)")
+
     else:
-        print("Тестовых данных нет, оценка только на валидации")
+        print("Нет данных для оценки (ни test, ни val).")
         accuracy = 0.0
-
-    # 4. СОХРАНЕНИЕ РЕЗУЛЬТАТОВ
-    print("\nСОХРАНЯЮ РЕЗУЛЬТАТЫ...")
 
     # Модель уже сохранена автоматически в path
     print(f"Модель сохранена в: {MODELS_DIR / MODEL_NAME}")
@@ -187,7 +226,10 @@ def train_with_autogluon():
         "train_samples": len(train_df),
         "val_samples": len(val_df),
         "test_samples": len(test_df) if test_df is not None else 0,
-        "test_accuracy": accuracy if 'accuracy' in locals() else None,
+        "metrics": {
+            "accuracy": accuracy if 'accuracy' in locals() else 0,
+            "f1_score": f1 if 'f1' in locals() else 0
+        },
         "classes": ["Романский", "Готический", "Ренессанс"],
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -196,25 +238,28 @@ def train_with_autogluon():
     with open(info_path, "w", encoding="utf-8") as f:
         json.dump(model_info, f, indent=2, ensure_ascii=False)
 
-    print(f"  📄 Информация о модели: {info_path}")
+    print(f"  Информация о модели: {info_path}")
 
     # 5. ТЕСТИРУЕМ МОДЕЛЬ НА ПРИМЕРАХ
     print("\nТЕСТИРУЮ НА ПРИМЕРАХ...")
 
     # Берём несколько примеров из валидационной выборки
-    if len(val_df) > 0:
-        sample_df = val_df.head(3)  # Первые 3 изображения
-        sample_predictions = predictor.predict(sample_df)
-        sample_proba = predictor.predict_proba(sample_df)
+    if 'analysis_df' in locals() and len(analysis_df) > 0:
+        # Показываем 3 самых уверенных правильных ответа
+        print(" Топ-3 верных предсказания (высокая уверенность):")
+        top_correct = analysis_df[analysis_df['is_correct']].sort_values(by='confidence', ascending=False).head(3)
+        for _, row in top_correct.iterrows():
+            print(f"   {row[label_column]} -> {row['predicted_label']} ({row['confidence']:.2%}) | {Path(row['image']).name}")
 
-        print("  Примеры предсказаний:")
-        for i, (_, row) in enumerate(sample_df.iterrows()):
-            true_label = row[label_column]
-            pred_label = sample_predictions[i]
-            confidence = max(sample_proba.iloc[i]) * 100
-
-            result = "ok" if true_label == pred_label else "not ok"
-            print(f"    {result} Фото {i+1}: Истина={true_label}, Предсказано={pred_label}, Уверенность={confidence:.1f}%")
+        # Показываем 3 самые грубые ошибки (модель была уверена, но ошиблась)
+        print("\n Топ-3 ошибки (модель была уверена, но ошиблась):")
+        top_errors = analysis_df[~analysis_df['is_correct']].sort_values(by='confidence', ascending=False).head(3)
+        
+        if len(top_errors) > 0:
+            for _, row in top_errors.iterrows():
+                print(f"   Истина: {row[label_column]} -> Предсказала: {row['predicted_label']} ({row['confidence']:.2%}) | {Path(row['image']).name}")
+        else:
+            print("   Ошибок нет! Идеальная модель.")
 
     return predictor, model_info
 
@@ -236,30 +281,41 @@ def main():
     predictor, model_info = result
 
     # Выводим итоги
-    print("ОБУЧЕНИЕ С AUTOGLUON ЗАВЕРШЕНО!")
+    print("\nОБУЧЕНИЕ С AUTOGLUON ЗАВЕРШЕНО!")
+    
+    metrics = model_info.get("metrics", {})
+    accuracy = metrics.get("accuracy", 0.0)
+    f1 = metrics.get("f1_score", 0.0)
 
     print(f"\nРЕЗУЛЬТАТЫ:")
-    if model_info["test_accuracy"] is not None:
-        print(f"   Точность на тестовых данных: {model_info['test_accuracy']:.2%}")
+    print(f"   Точность (Accuracy): {accuracy:.2%}")
+    print(f"   F1-score: {f1:.2%}")
     print(f"   Время обучения: {model_info['training_time_seconds']:.1f} сек")
     print(f"   Обучающих примеров: {model_info['train_samples']}")
     print(f"   Классов: {len(model_info['classes'])}")
 
     # Оценка качества
-    if model_info["test_accuracy"] is not None:
-        accuracy = model_info["test_accuracy"]
-        if accuracy >= 0.85:
-            print("Отличный результат! Модель готова к использованию.")
-        elif accuracy >= 0.75:
-            print("Хороший результат. Можно использовать в боте.")
-        elif accuracy >= 0.65:
-            print("Приемлемый результат. Рассмотрите добавление данных.")
-        else:
-            print("Результат низкий. Нужно больше данных или аугментации.")
-
+    if accuracy >= 0.85:
+        print("Отличный результат! Модель готова к использованию.")
+    elif accuracy >= 0.75:
+        print("Хороший результат. Можно использовать в боте.")
+    elif accuracy >= 0.65:
+        print("Приемлемый результат. Рассмотрите добавление данных.")
+    else:
+        print("Результат низкий. Нужно больше данных или аугментации.")
+    
     print(f"\nСОЗДАННЫЕ ФАЙЛЫ:")
     print(f"   Модель: {MODELS_DIR / MODEL_NAME}/")
     print(f"   Отчёт: {REPORTS_DIR / f'{MODEL_NAME}_info.json'}")
+    csv_report = REPORTS_DIR / f"prediction_analysis_val.csv"
+    if csv_report.exists():
+         print(f"   CSV для аналитики: {csv_report}")
+    else:
+         # Проверим test
+         csv_report_test = REPORTS_DIR / f"prediction_analysis_test.csv"
+         if csv_report_test.exists():
+             print(f"   CSV для аналитики: {csv_report_test}")
 
 if __name__ == "__main__":
     main()
+
