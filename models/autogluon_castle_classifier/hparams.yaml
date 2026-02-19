@@ -1,7 +1,7 @@
 optim_type: adamw
 lr_choice: layerwise_decay
 lr_schedule: cosine_decay
-lr: 0.0004
+lr: 0.0001
 lr_decay: 0.9
 end_lr: 0
 lr_mult: 1
@@ -15,7 +15,7 @@ track_grad_norm: -1
 cross_modal_align: null
 cross_modal_align_weight: 0
 automatic_optimization: true
-accumulate_grad_batches: 16
+accumulate_grad_batches: 128
 gradient_clip_val: 1
 gradient_clip_algorithm: norm
 use_aug_optim: false

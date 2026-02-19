@@ -2,7 +2,7 @@ model:
   names:
   - timm_image
   timm_image:
-    checkpoint_name: mobilenetv3_large_100
+    checkpoint_name: swin_large_patch4_window7_224
     mix_choice: all_logits
     data_types:
     - image
@@ -59,7 +59,7 @@ data:
     custom_templates: null
 optim:
   optim_type: adamw
-  lr: 0.0004
+  lr: 0.0001
   weight_decay: 0.001
   lr_choice: layerwise_decay
   lr_decay: 0.9
@@ -120,12 +120,12 @@ optim:
     optim_type: adamw
     weight_decay: 1.0e-05
 env:
-  num_gpus: 1
+  num_gpus: 0
   num_nodes: 1
   batch_size: 128
-  per_gpu_batch_size: 8
+  per_gpu_batch_size: 1
   inference_batch_size_ratio: 4
-  precision: 16-mixed
+  precision: 32
   num_workers: 2
   num_workers_inference: 2
   accelerator: auto
